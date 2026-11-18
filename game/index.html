@@ -1,0 +1,36 @@
+<!-- SOLMARA — An Open-World Crime Story. A complete open-world crime game
+     in the browser: drive and steal cars, outrun the police, run four story
+     missions for Mara Voss, find the hidden stashes. WASD move/drive,
+     mouse aim, Click shoot, E steal car, Shift run, P pause, M mute. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SOLMARA — An Open-World Crime Story</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #0c0e14;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: Georgia, serif;
+  }
+  #game {
+    width: min(100vw, calc(100vh * 16 / 9));
+    height: min(100vh, calc(100vw * 9 / 16));
+    display: block;
+    background: #7fae5a;
+    cursor: crosshair;
+  }
+</style>
+</head>
+<body>
+<canvas id="game" width="1280" height="720"></canvas>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
