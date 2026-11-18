@@ -1,72 +1,76 @@
-[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01)
-[![rank](https://make.fun/badge/gta6-01/itaro9110/gta6-01/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard)
+[![gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01)
+[![rank](https://make.fun/badge/gta6-01/itaro9110/gta6-01/rank.svg)](https://make.fun/bounty/gta6-01)
 [![reward](https://make.fun/badge/gta6-01/itaro9110/gta6-01/reward.svg)](https://make.fun/bounty/gta6-01)
 
 # SOLMARA — An Open-World Crime Story
 
-A complete open-world crime game for make.fun's **gta6-01** ("Make GTA 6"),
-built from static files and played in desktop Chrome with keyboard and mouse.
+Leo Marin comes home to Solmara, a fictional sun-soaked coastal city, broke and
+wanted — one job away from freedom. Mara Voss has four jobs for him, and the
+last one is the $1,500 Meridian Vault.
 
-[make.fun bounty page](https://make.fun/bounty/gta6-01)
+## Play it
 
-Leo Marin is back in Solmara, a sun-soaked fictional coastal city — broke,
-wanted, and one job away from freedom. Mara Voss has four story missions
-for him, from stealing a car to the $1,500 Meridian Vault job.
-
-## Play
+Open `game/index.html` in desktop Chrome, or run the local server:
 
 ```sh
-node serve.ts
-# open http://localhost:8080 in desktop Chrome
+npx tsx serve.ts
 ```
 
-**Controls:** WASD walk/drive · mouse aim · Click/Space shoot · E steal car
-(E again to get out) · Shift run · P pause · M mute.
+No install, no network, no libraries. Everything runs from the files in
+`game/`.
 
-## The game
+## The story
 
-- **Open city** (3600×2600): road grid, live traffic, pedestrians, parks,
-  Sun Plaza, marina docks, beach + animated sea.
-- **On foot and by car:** walk, run, steal any car, drive with
-  accel/brake/steering physics.
-- **Wanted 0–5 stars:** police cruisers chase and ram; foot cops chase,
-  shoot and bust (lose 15% cash). Lay low and the heat cools off.
-- **4 story missions** with briefings, gold beacons and minimap blips:
-  WHEELS UP ($200), THE PICKUP ($350), HARBOR HEAT ($500),
-  THE BIG SCORE ($1,500) — then a victory screen and free roam.
-- **Combat:** mouse-aim pistol, tracers, enemy HP bars, kill payouts.
-- **HUD + live minimap**, off-screen target arrow, event log, banners.
-- **Save:** autosave after every mission + pause-menu save; CONTINUE
-  on the title screen.
-- **Side content:** 8 hidden $75 stashes.
-- **Sound:** fully synthesized WebAudio music + SFX, no audio files.
+1. **Hot Wheels** — steal any car, deliver it to Mara's Bar, the Rusty Anchor. $150.
+2. **Courier Run** — three drops across the city: Old Market, the Palms Hotel,
+   Harbor Works. $300.
+3. **The Comet GT** — lift the gold Comet GT from the marina and get it to
+   Rico's Chop Shop. $450.
+4. **Meridian Vault** — hold E to crack the vault while the whole Solmara PD
+   closes in, then escape to Mara's Bar. $1,500.
 
-## Structure
+Finish all four and the story is done — but the city stays open.
 
-One job per file, all under `game/src/`:
+## The city
+
+A 3600×2600 grid of avenues and streets with five districts: Old Town,
+Marina Bay, Downtown, Solmara Beach and Harbor Works. Liberty Plaza with its
+fountain, the marina, the beach, the vault, the chop shop, Police HQ — all of
+it is on the minimap. Traffic drives the roads, pedestrians walk the
+sidewalks, and every car on the street can be stolen.
+
+## How it plays
+
+- **WASD** — walk / drive. **E** — steal a car, or hold it to crack the vault.
+- **F** — punch. **Click** — shoot (watch the ammo). **P** — pause.
+  **M** — mute. **C** — continue a saved game.
+- The wanted system runs 0–5 stars. Police cars chase, ram and try to arrest
+  you; the hotter you are, the more of them come. Lay low and the heat decays.
+- Health, cash and ammo pickups are scattered around the city. Your progress
+  saves in the browser and continues where you left off.
+
+## Look and sound
+
+Flat 2D top-down art: bright solid colors, thick outlines, no assets. All
+sound is synthesized in the browser — engine hum, sirens, gunshots and a
+simple music loop. No audio files.
+
+## Files
 
 | File | Job |
-|---|---|
-| `config.js` | every number, place, mission and colour |
-| `random.js` | seeded RNG (mulberry32) |
-| `city.js` | city generation + collision |
-| `input.js` | keyboard and mouse |
-| `audio.js` | synthesized music + SFX |
-| `world.js` | simulation: driving, police, combat, missions, save |
-| `render.js` | canvas drawing: city, HUD, minimap, menus |
-| `shots.js` | the four staged screenshot scenes |
-| `main.js` | frame loop + screen state machine |
+| --- | --- |
+| `game/src/config.js` | Every number in one place |
+| `game/src/random.js` | Seeded RNG |
+| `game/src/city.js` | The map: roads, districts, places, buildings |
+| `game/src/world.js` | The simulation: player, cars, traffic, peds, police, wanted, combat, missions, pickups, save/load |
+| `game/src/render.js` | All drawing: city, cars, characters, HUD, minimap |
+| `game/src/input.js` | Keyboard and mouse |
+| `game/src/audio.js` | Synthesized sound and music |
+| `game/src/shots.js` | The four screenshot scenes |
+| `game/src/main.js` | Game loop and screens |
+| `game/index.html` | Page and canvas |
+| `serve.ts` | Static server for local play |
+| `shots.json` | Screenshot list |
+| `main.ts` | Build entrypoint: copies the game and screenshots into the output and writes the dossier |
 
-`main.ts` (Node 22, stdlib only) copies `game/` + `screenshots/` to
-`/output` and writes `/output/dossier.json` via `vendor/makefun-game.ts`.
-
-## Screenshots
-
-Four real renders in `screenshots/`, staged with `?shot=N&seed=1`:
-title over a busy intersection, the beach road on foot, a 3-star chase,
-and the mid-fight warehouse mission.
-
-## License
-
-MIT — see `LICENSE`. All city, characters, story, art, sound and music
-are original; nothing from Rockstar Games or any other commercial game.
+[Bounty: make.fun — Make GTA 6 (gta6-01)](https://make.fun/bounty/gta6-01)

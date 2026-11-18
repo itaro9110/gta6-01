@@ -1,96 +1,107 @@
-// input.js — keyboard and mouse for SOLMARA.
-// One file, one job: it turns DOM events into a small, frame-friendly
-// state the world reads each tick. Keys are held in a set; presses that
-// should fire once (E to steal, P to pause, M to mute, Space to shoot)
-// are recorded as edge-triggered "just pressed" flags that main.js
-// clears at the end of every frame. The mouse position is tracked in
-// canvas pixels so the player can aim with it.
+// SOLMARA — keyboard and mouse.
+// Held keys steer Leo; one-shot presses (confirm, pause, punch, enter) are
+// queued as flags and taken once by the loop, so a press between two frames
+// is never lost and never counted twice. The mouse aims the gun.
+
+export const ACTION_CONFIRM = 1;
+export const ACTION_PAUSE = 2;
+export const ACTION_ENTER = 4;
+export const ACTION_PUNCH = 8;
+export const ACTION_SHOOT = 16;
+export const ACTION_CONTINUE = 32;
+
+const UP = new Set(['ArrowUp', 'KeyW']);
+const DOWN = new Set(['ArrowDown', 'KeyS']);
+const LEFT = new Set(['ArrowLeft', 'KeyA']);
+const RIGHT = new Set(['ArrowRight', 'KeyD']);
+const CONFIRM = new Set(['Space', 'Enter']);
+const PAUSE = new Set(['KeyP', 'Escape']);
+const ENTER = new Set(['KeyE']);
+const PUNCH = new Set(['KeyF']);
+const CONTINUE = new Set(['KeyC']);
+const MUTE = new Set(['KeyM']);
 
 export function createInput(canvas) {
-  const keys = new Set();
-  const justPressed = new Set();
-  const mouse = { x: canvas.width / 2, y: canvas.height / 2, down: false, justDown: false };
+  const held = new Set();
+  let actions = 0;
+  let mutePressed = false;
+  const mouse = { x: 0, y: 0, clicked: false, clickX: 0, clickY: 0 };
 
-  function keyName(e) {
-    const k = e.key.toLowerCase();
-    if (k === ' ') return 'space';
-    return k;
-  }
+  window.addEventListener('keydown', (event) => {
+    if (UP.has(event.code) || DOWN.has(event.code) || LEFT.has(event.code) || RIGHT.has(event.code)) {
+      held.add(event.code);
+      event.preventDefault();
+      return;
+    }
+    if (event.repeat) return;
+    if (CONFIRM.has(event.code)) actions |= ACTION_CONFIRM;
+    else if (PAUSE.has(event.code)) actions |= ACTION_PAUSE;
+    else if (ENTER.has(event.code)) actions |= ACTION_ENTER;
+    else if (PUNCH.has(event.code)) actions |= ACTION_PUNCH;
+    else if (CONTINUE.has(event.code)) actions |= ACTION_CONTINUE;
+    else if (MUTE.has(event.code)) mutePressed = true;
+    else return;
+    event.preventDefault();
+  });
+  window.addEventListener('keyup', (event) => {
+    held.delete(event.code);
+  });
+  // A key released while the tab is hidden never sends keyup: let go on blur.
+  window.addEventListener('blur', () => {
+    held.clear();
+    mouse.clicked = false;
+  });
+  // No context menu over the game: a right-click is just another shot.
+  canvas.addEventListener('contextmenu', (event) => event.preventDefault());
 
-  function onKeyDown(e) {
-    const k = keyName(e);
-    if (['space', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
-    if (!keys.has(k)) justPressed.add(k);
-    keys.add(k);
-  }
-
-  function onKeyUp(e) {
-    keys.delete(keyName(e));
-  }
-
-  function onMouseMove(e) {
+  canvas.addEventListener('pointermove', (event) => {
     const rect = canvas.getBoundingClientRect();
-    mouse.x = (e.clientX - rect.left) * (canvas.width / rect.width);
-    mouse.y = (e.clientY - rect.top) * (canvas.height / rect.height);
-  }
+    mouse.x = event.clientX - rect.left;
+    mouse.y = event.clientY - rect.top;
+  });
+  canvas.addEventListener('pointerdown', (event) => {
+    const rect = canvas.getBoundingClientRect();
+    mouse.x = event.clientX - rect.left;
+    mouse.y = event.clientY - rect.top;
+    mouse.clicked = true;
+    mouse.clickX = mouse.x;
+    mouse.clickY = mouse.y;
+    actions |= ACTION_SHOOT | ACTION_CONFIRM;
+  });
 
-  function onMouseDown(e) {
-    if (e.button !== 0) return;
-    onMouseMove(e);
-    mouse.down = true;
-    mouse.justDown = true;
+  function has(set) {
+    for (const code of set) if (held.has(code)) return true;
+    return false;
   }
-
-  function onMouseUp(e) {
-    if (e.button !== 0) return;
-    mouse.down = false;
-  }
-
-  function onBlur() {
-    keys.clear();
-    mouse.down = false;
-  }
-
-  window.addEventListener('keydown', onKeyDown);
-  window.addEventListener('keyup', onKeyUp);
-  window.addEventListener('blur', onBlur);
-  canvas.addEventListener('mousemove', onMouseMove);
-  canvas.addEventListener('mousedown', onMouseDown);
-  window.addEventListener('mouseup', onMouseUp);
 
   return {
-    keys,
+    // Held steering, as -1/0/1 on each axis.
+    axes() {
+      return {
+        up: has(UP),
+        down: has(DOWN),
+        left: has(LEFT),
+        right: has(RIGHT),
+      };
+    },
+    // Is E held down right now (for the vault crack)?
+    enterHeld() {
+      return held.has('KeyE');
+    },
     mouse,
-    // Held down this frame?
-    down(name) {
-      return keys.has(name);
+    // Take the queued one-shot presses since the last call.
+    takeActions() {
+      const taken = actions;
+      actions = 0;
+      const clicked = mouse.clicked;
+      mouse.clicked = false;
+      return { actions: taken, clicked };
     },
-    // Pressed exactly once since the last clear?
-    pressed(name) {
-      return justPressed.has(name);
-    },
-    // Any of these held?
-    any(names) {
-      return names.some((n) => keys.has(n));
-    },
-    // Movement vector from WASD / arrows, normalised.
-    moveVector() {
-      let x = 0;
-      let y = 0;
-      if (keys.has('a') || keys.has('arrowleft')) x -= 1;
-      if (keys.has('d') || keys.has('arrowright')) x += 1;
-      if (keys.has('w') || keys.has('arrowup')) y -= 1;
-      if (keys.has('s') || keys.has('arrowdown')) y += 1;
-      if (x !== 0 && y !== 0) {
-        x *= Math.SQRT1_2;
-        y *= Math.SQRT1_2;
-      }
-      return { x, y };
-    },
-    // Called by main.js at the end of every frame.
-    endFrame() {
-      justPressed.clear();
-      mouse.justDown = false;
+    // Take the mute toggle (M) since the last call.
+    takeMute() {
+      const was = mutePressed;
+      mutePressed = false;
+      return was;
     },
   };
 }

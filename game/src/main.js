@@ -1,252 +1,313 @@
-// SOLMARA — An Open-World Crime Story.
-// ============================================================
-// A complete open-world crime game that runs entirely in your
-// browser from static files: no downloads, no server, no network.
+// SOLMARA — boot and the one loop.
+// Input is read every frame, the world advances in fixed 1/60 s steps, and
+// the renderer paints what is there. Screens: title, play, pause, busted,
+// wasted and story complete.
 //
-// THE PREMISE: Leo Marin is back in Solmara, a sun-soaked fictional
-// coastal city of avenues, plazas, a marina and a beach — broke,
-// wanted, and one job away from freedom. Mara Voss, the fixer who
-// runs the city's jobs, has four missions for him, and each one pays.
-//
-// THE CITY: a 3600 x 2600 open world with a road grid, live traffic,
-// pedestrians on the sidewalks, parks, Sun Plaza with its fountain,
-// the old marina docks, and a beach with animated sea at the east
-// edge. Walk it on foot or steal any car you see and drive it.
-//
-// CONTROLS: WASD to walk or drive, mouse to aim, Click or Space to
-// fire your pistol, E to steal a car (E again to get out), Shift to
-// run, P to pause, M to mute the music.
-//
-// MISSIONS (four, from Mara Voss, each with a briefing, a gold
-// beacon in the world and a blip on the minimap):
-//   1. WHEELS UP ($200) — steal any car and deliver it to her garage.
-//   2. THE PICKUP ($350) — grab a crate at the old marina, then slip
-//      away to the hideout up north.
-//   3. HARBOR HEAT ($500) — defeat four Crimson Vipers holding the
-//      harbor warehouse yard, then take their strongbox.
-//   4. THE BIG SCORE ($1,500) — hit the Meridian Vault, trip the
-//      alarm, and escape to the hideout with the heat on.
-// Finish all four and the victory screen pays out — then free roam
-// continues, with the whole city still yours to explore.
-//
-// WANTED (0 to 5 stars): stealing cars, shooting, hitting pedestrians
-// and wrecking police cruisers all raise the heat. Police cruisers
-// chase and ram you; from two stars, foot cops chase and shoot too.
-// If a cop holds you for a few seconds you are BUSTED and lose 15%
-// of your cash. Lay low and the heat cools off. If your health hits
-// zero, you are WASTED and lose 10%.
-//
-// HUD AND MINIMAP: cash, a health bar, the wanted stars, a mission
-// tracker with the live distance to your objective, a live minimap
-// showing roads, the sea, you, your target, the police and your
-// enemies, an off-screen arrow to the objective, and an event log.
-//
-// SAVE: your progress autosaves after every mission, and you can save
-// from the pause menu. The title screen offers CONTINUE whenever a
-// save exists, or NEW GAME and HOW TO PLAY.
-//
-// SIDE CONTENT: eight hidden gold stashes worth $75 each are tucked
-// around the city, and taking down a Viper or a cop pays $25.
-//
-// AUDIO: all sound is synthesized live with WebAudio — a bass-and-
-// hats groove, engine hum, two-tone police sirens, gunshots, pickups
-// and a mission fanfare. Nothing is downloaded; M mutes it.
-//
-// FILE MAP (one job per file, so the structure reads at a glance):
-//   game/src/config.js — every number, place, mission and colour.
-//   game/src/random.js — seeded random numbers (mulberry32).
-//   game/src/city.js — the city: roads, buildings, parks, beach.
-//   game/src/input.js — keyboard and mouse, edge-triggered.
-//   game/src/audio.js — synthesized music and sound effects.
-//   game/src/world.js — the simulation: driving, police, combat,
-//     wanted, missions, pickups, save and load.
-//   game/src/render.js — canvas drawing: city, HUD, minimap, menus.
-//   game/src/shots.js — the four staged screenshot scenes.
-//   game/src/main.js — this file: the loop and the screen flow.
-// ============================================================
-
-import { createWorld } from './world.js';
-import { createInput } from './input.js';
+// ?seed=N fixes the city. ?shot=start|drive|chase|mission (with &seed=N)
+// stages that scene instead of running the loop, paints it twice and sets
+// window.__shotReady for a screenshot. In game mode the debug handle
+// window.__solmara exposes the world for tests.
+import { CFG } from './config.js';
+import { createRng } from './random.js';
+import {
+  EVENT_BUSTED, EVENT_CRASH, EVENT_DEAD, EVENT_MISSION, EVENT_PICKUP,
+  EVENT_PUNCH, EVENT_SHOT, EVENT_STEAL,
+  applySave, createWorld, loadSave, playerCar, saveGame, stepWorld,
+} from './world.js';
+import {
+  ACTION_CONFIRM, ACTION_CONTINUE, ACTION_ENTER, ACTION_PAUSE,
+  ACTION_PUNCH, ACTION_SHOOT, createInput,
+} from './input.js';
+import {
+  SCREEN_BUSTED, SCREEN_COMPLETE, SCREEN_DEAD, SCREEN_PAUSE,
+  SCREEN_PLAY, SCREEN_TITLE, createRenderer,
+} from './render.js';
 import { createAudio } from './audio.js';
-import { renderGame, layoutButtons } from './render.js';
-import { stageShot } from './shots.js';
+import { shotSeconds, stageShot } from './shots.js';
 
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
-const VIEW = { w: canvas.width, h: canvas.height };
+const STEP = 1 / 60;
+const MAX_FRAME = 0.25;
 
 const params = new URLSearchParams(window.location.search);
-const shotParam = Number(params.get('shot') || 0);
-const seedParam = Number(params.get('seed') || 1);
+const shot = params.get('shot');
+const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
+const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
 
+const canvas = document.getElementById('game');
+const status = document.getElementById('status');
+const renderer = createRenderer(canvas);
 const audio = createAudio();
-const input = createInput(canvas);
-const world = createWorld(seedParam, audio);
 
-let screen = 'title';
-let prevScreen = 'title';
-let deathApplied = false;
-
-// Shot mode: a seeded, frozen staged scene for screenshots.
-if (shotParam >= 1 && shotParam <= 4) {
-  screen = stageShot(world, shotParam);
-} else {
-  world.newGame();
-  // The title backdrop: Leo on foot near Sun Plaza, camera pinned.
-  world.player.x = 1050;
-  world.player.y = 1400;
-  world.player.inCar = null;
-  world.cameraPinned = true;
-  world.camera.x = 1400;
-  world.camera.y = 1250;
-  world.titleCam = { x: 1400, y: 1250 };
+function announce(message) {
+  status.textContent = message;
 }
 
-function hasSave() {
-  return world.hasSave();
-}
+// ------------------------------------------------------------------ shots
 
-function startPlaying(fromSave) {
-  if (fromSave) {
-    world.loadSave();
-  } else {
-    world.newGame();
+function runShot(name) {
+  const state = createWorld(seed);
+  const scene = stageShot(state, name);
+  const seconds = shotSeconds(name);
+  const steps = Math.round(seconds / STEP);
+  for (let i = 0; i < steps; i += 1) {
+    stepWorld(state, scene.drive(state), STEP);
   }
-  world.cameraPinned = false;
-  world.frozen = false;
-  world.dead = null;
-  deathApplied = false;
-  screen = 'play';
-  audio.unlock();
-}
-
-function respawnAfterDeath() {
-  const p = world.player;
-  const loss = screen === 'busted' ? 0.15 : 0.10;
-  world.cash = Math.floor(world.cash * (1 - loss));
-  p.cash = world.cash;
-  p.hp = 100;
-  p.x = 1400;
-  p.y = 1250;
-  p.inCar = null;
-  world.wantedHeat = 0;
-  world.stars = 0;
-  world.cruisers = [];
-  world.footCops = [];
-  world.bullets = [];
-  world.enemyBullets = [];
-  world.dead = null;
-  world.camera.x = p.x;
-  world.camera.y = p.y;
-  deathApplied = false;
-  screen = 'play';
-}
-
-function clickButton(id) {
-  audio.unlock();
-  if (screen === 'title') {
-    if (id === 'new') startPlaying(false);
-    else if (id === 'continue') startPlaying(true);
-    else if (id === 'howto') { prevScreen = 'title'; screen = 'howto'; }
-  } else if (screen === 'howto') {
-    if (id === 'back') screen = prevScreen;
-  } else if (screen === 'pause') {
-    if (id === 'resume') screen = 'play';
-    else if (id === 'save') world.saveGame();
-    else if (id === 'restart') {
-      world.newGame();
-      world.cameraPinned = false;
-      screen = 'play';
-    } else if (id === 'quit') {
-      screen = 'title';
-      world.cameraPinned = true;
-      world.camera.x = world.titleCam.x;
-      world.camera.y = world.titleCam.y;
-    }
-  } else if (screen === 'wasted' || screen === 'busted' || screen === 'victory') {
-    if (id === 'continue') {
-      if (screen === 'victory') screen = 'play';
-      else respawnAfterDeath();
-    } else if (id === 'quit') {
-      screen = 'title';
-      world.cameraPinned = true;
-      world.camera.x = world.titleCam.x;
-      world.camera.y = world.titleCam.y;
+  // A chase scene is a chase, not an arrest: if the autopilot got caught
+  // during the run, revive Leo for the frame and push the holding cops off
+  // him, so the picture shows the pursuit in progress.
+  if (state.player.busted || state.player.dead) {
+    state.player.busted = false;
+    state.player.dead = false;
+    state.player.health = Math.max(state.player.health, 60);
+    state.player.arrestTimer = 0;
+    state.message = '';
+    state.messageTimer = 0;
+    for (const cop of state.cars) {
+      if (cop.driver !== 'cop') continue;
+      const d = Math.hypot(cop.x - state.player.x, cop.y - state.player.y);
+      if (d < 130) {
+        const a = Math.atan2(cop.y - state.player.y, cop.x - state.player.x);
+        cop.x = state.player.x + Math.cos(a) * 140;
+        cop.y = state.player.y + Math.sin(a) * 140;
+      }
     }
   }
+  // Snap the camera onto Leo: a shot paints only twice, and a smooth
+  // follow would still be travelling from the spawn point.
+  const camera = { x: state.player.x, y: state.player.y };
+  renderer.resize();
+  let painted = 0;
+  function paint() {
+    renderer.draw(state, scene.screen, camera, { saveExists: false });
+    painted += 1;
+    if (painted < 2) requestAnimationFrame(paint);
+    else window.__shotReady = true;
+  }
+  requestAnimationFrame(paint);
 }
 
-function buttonAt(x, y) {
-  if (screen === 'howto') {
-    if (x >= VIEW.w / 2 - 150 && x <= VIEW.w / 2 + 150 && y >= VIEW.h - 130 && y <= VIEW.h - 78) return 'back';
-    return null;
+// ------------------------------------------------------------------ the game
+
+function runGame() {
+  const input = createInput(canvas);
+  let state = createWorld(seed);
+  let screen = SCREEN_TITLE;
+  let save = loadSave();
+  let camera = { x: state.player.x, y: state.player.y };
+  let accumulator = 0;
+  let last = performance.now();
+  let storyShown = false;
+
+  // The debug handle tests use: the live world, one step, the save, and the
+  // screen the game is on.
+  window.__solmara = { state, stepWorld, saveGame, loadSave, CFG, version: 'solmara-5.2', screen: () => screen };
+
+  function startFresh() {
+    state = createWorld(seed);
+    window.__solmara.state = state;
+    camera = { x: state.player.x, y: state.player.y };
+    storyShown = false;
+    screen = SCREEN_PLAY;
+    audio.ensure();
+    audio.startMusic();
+    announce('Playing. Steal a car — press E next to one.');
   }
-  const buttons = layoutButtons(screen, VIEW.w, VIEW.h, hasSave());
-  for (const b of buttons) {
-    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b.id;
-  }
-  return null;
-}
 
-canvas.addEventListener('click', (e) => {
-  const rect = canvas.getBoundingClientRect();
-  const x = (e.clientX - rect.left) * (canvas.width / rect.width);
-  const y = (e.clientY - rect.top) * (canvas.height / rect.height);
-  if (screen === 'play') return;
-  const id = buttonAt(x, y);
-  if (id) clickButton(id);
-});
-
-window.addEventListener('keydown', (e) => {
-  const k = e.key.toLowerCase();
-  if (k === 'm') audio.setMuted(!audio.isMuted());
-  if ((k === 'p' || k === 'escape') && (screen === 'play' || screen === 'pause')) {
-    screen = screen === 'play' ? 'pause' : 'play';
-  }
-  if (k === 'enter' && screen === 'title') startPlaying(false);
-});
-
-// The frame loop: simulate while playing, always render.
-let last = performance.now();
-function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000);
-  last = now;
-
-  if (screen === 'title') {
-    // The title camera never drifts: restore the staged anchor.
-    world.camera.x = world.titleCam.x;
-    world.camera.y = world.titleCam.y;
-    world.time += dt;
-  } else if (screen === 'play' && !world.frozen) {
-    world.update(dt, input, VIEW);
-    if (world.dead && !deathApplied) {
-      deathApplied = true;
-      screen = world.dead === 'busted' ? 'busted' : 'wasted';
-      audio.bust();
-    } else if (world.victory && screen === 'play') {
-      screen = 'victory';
+  function startContinued() {
+    const loaded = loadSave();
+    if (!loaded) {
+      startFresh();
+      return;
     }
-  } else if (screen === 'play' && world.frozen) {
-    // Staged shots: the world holds still, but time ticks so the
-    // minimap pulse, the beacon and the sea keep animating.
-    world.time += dt;
+    state = createWorld(seed);
+    applySave(state, loaded);
+    window.__solmara.state = state;
+    camera = { x: state.player.x, y: state.player.y };
+    storyShown = false;
+    screen = SCREEN_PLAY;
+    audio.ensure();
+    audio.startMusic();
+    announce(`Continuing. Cash $${state.player.cash}.`);
   }
 
-  renderGame(ctx, world, screen, VIEW, input.mouse, hasSave());
-  input.endFrame();
+  // Busted or wasted: Leo loses some cash, wakes up at Mara's Bar, and the
+  // cops forget him. The story goes on.
+  function respawn(fine, label) {
+    const p = state.player;
+    p.cash = Math.max(0, p.cash - fine);
+    p.health = CFG.playerHealth;
+    p.heat = 0;
+    p.wanted = 0;
+    p.arrestTimer = 0;
+    p.busted = false;
+    p.dead = false;
+    p.inCar = false;
+    p.carId = null;
+    p.x = state.city.places.marasBar.x;
+    p.y = state.city.places.marasBar.y + 40;
+    p.angle = -Math.PI / 2;
+    for (let i = state.cars.length - 1; i >= 0; i -= 1) {
+      if (state.cars[i].driver === 'cop') state.cars.splice(i, 1);
+    }
+    camera = { x: p.x, y: p.y };
+    screen = SCREEN_PLAY;
+    saveGame(state);
+    announce(`${label} Leo wakes up at Mara's Bar, $${fine} lighter.`);
+  }
+
+  function handleEvents() {
+    const events = state.events;
+    if (events.length === 0) return;
+    for (const ev of events) {
+      if (ev.type === EVENT_STEAL) audio.doorSlam();
+      else if (ev.type === EVENT_CRASH) audio.crash();
+      else if (ev.type === EVENT_SHOT) audio.shot();
+      else if (ev.type === EVENT_PUNCH) audio.punch();
+      else if (ev.type === EVENT_PICKUP) audio.pickup();
+      else if (ev.type === EVENT_MISSION) {
+        audio.mission();
+        audio.cash();
+        saveGame(state);
+      } else if (ev.type === EVENT_BUSTED) {
+        audio.busted();
+        screen = SCREEN_BUSTED;
+      } else if (ev.type === EVENT_DEAD) {
+        audio.busted();
+        screen = SCREEN_DEAD;
+      }
+    }
+    events.length = 0;
+  }
+
+  function handleActions(taken) {
+    const flags = taken.actions;
+    if (input.takeMute()) {
+      audio.setMuted(!audio.isMuted());
+      announce(audio.isMuted() ? 'Muted.' : 'Sound on.');
+    }
+    if (screen === SCREEN_TITLE) {
+      if (flags & ACTION_CONTINUE && save) startContinued();
+      else if (flags & ACTION_CONFIRM) startFresh();
+      return;
+    }
+    if (screen === SCREEN_PAUSE) {
+      if (flags & (ACTION_PAUSE | ACTION_CONFIRM)) {
+        screen = SCREEN_PLAY;
+        announce('Playing.');
+      }
+      return;
+    }
+    if (screen === SCREEN_BUSTED) {
+      if (flags & ACTION_CONFIRM) respawn(100, 'Busted.');
+      return;
+    }
+    if (screen === SCREEN_DEAD) {
+      if (flags & ACTION_CONFIRM) respawn(150, 'Wasted.');
+      return;
+    }
+    if (screen === SCREEN_COMPLETE) {
+      if (flags & ACTION_CONFIRM) {
+        screen = SCREEN_PLAY;
+        announce('Free roam. Solmara is yours.');
+      }
+      return;
+    }
+    if (flags & ACTION_PAUSE) {
+      screen = SCREEN_PAUSE;
+      saveGame(state);
+      announce('Paused. Progress saved.');
+    }
+  }
+
+  function readWorldActions(taken) {
+    const axes = input.axes();
+    const flags = taken.actions;
+    const mouse = input.mouse;
+    let shootX = 0;
+    let shootY = 0;
+    if (taken.clicked) {
+      const scale = renderer.view.h / 720;
+      shootX = camera.x + (mouse.clickX - renderer.view.w / 2) / scale;
+      shootY = camera.y + (mouse.clickY - renderer.view.h / 2) / scale;
+    }
+    return {
+      up: axes.up,
+      down: axes.down,
+      left: axes.left,
+      right: axes.right,
+      enterPressed: (flags & ACTION_ENTER) !== 0,
+      enterHeld: input.enterHeld(),
+      punchPressed: (flags & ACTION_PUNCH) !== 0,
+      shootPressed: taken.clicked,
+      shootX,
+      shootY,
+    };
+  }
+
+  function step(taken) {
+    if (screen === SCREEN_TITLE) {
+      stepWorld(state, {
+        up: false, down: false, left: false, right: false,
+        enterPressed: false, enterHeld: false, punchPressed: false,
+        shootPressed: false, shootX: 0, shootY: 0,
+      }, STEP);
+      return;
+    }
+    if (screen !== SCREEN_PLAY) return;
+    const actions = readWorldActions(taken);
+    stepWorld(state, actions, STEP);
+    handleEvents();
+    const p = state.player;
+    const car = playerCar(state);
+    audio.setEngine(car ? Math.abs(car.speed) / CFG.carMaxSpeed : 0, p.inCar);
+    audio.setSiren(p.wanted > 0, state.time);
+    if (state.storyComplete && !storyShown) {
+      storyShown = true;
+      screen = SCREEN_COMPLETE;
+      saveGame(state);
+    }
+  }
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    const dt = Math.min((now - last) / 1000, MAX_FRAME);
+    last = now;
+    // One-shot presses are taken once per frame and shared by the screen
+    // handler and the step, so a press is never lost or counted twice.
+    const taken = input.takeActions();
+    handleActions(taken);
+    accumulator += dt;
+    while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) {
+      step(taken);
+      accumulator -= STEP;
+      if (screen !== SCREEN_TITLE && screen !== SCREEN_PLAY) {
+        accumulator = 0;
+        break;
+      }
+    }
+    if (screen !== SCREEN_TITLE && screen !== SCREEN_PLAY) accumulator = 0;
+    const p = state.player;
+    const follow = 1 - Math.exp(-CFG.cameraFollow * dt);
+    camera.x += (p.x - camera.x) * follow;
+    camera.y += (p.y - camera.y) * follow;
+    // The save is only re-read on the title screen, where Continue lives;
+    // reading localStorage every frame would be pure waste.
+    if (screen === SCREEN_TITLE) save = loadSave();
+    renderer.draw(state, screen, camera, { saveExists: save !== null });
+  }
+
+  // Leaving the tab pauses a running game rather than letting the city run on.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && screen === SCREEN_PLAY) {
+      screen = SCREEN_PAUSE;
+      saveGame(state);
+      announce('Paused.');
+    }
+  });
+
+  announce('SOLMARA. Press Space or click to start.');
   requestAnimationFrame(frame);
 }
 
-// Test hooks: the headless playtests drive the game through these.
-window.__solmara = {
-  world,
-  input,
-  audio,
-  get screen() { return screen; },
-  set screen(s) { screen = s; },
-  startPlaying,
-  clickButton,
-  VIEW,
-};
-
-requestAnimationFrame(frame);
+if (shot) runShot(shot);
+else runGame();

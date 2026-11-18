@@ -1,38 +1,38 @@
-// main.ts — the entrypoint that hands SOLMARA in to make.fun.
-// It copies game/ and screenshots/ from this repository into the
-// output directory (/output, or MAKEFUN_OUTPUT_DIR outside the grader)
-// and writes /output/dossier.json with buildDossier from the kit's
-// vendor/makefun-game.ts. Node 22, standard library only. It runs
-// twice and writes the same bytes both times: the copy is a plain
-// byte-for-byte copy in sorted order, and the dossier is deterministic.
+// SOLMARA's entrypoint (Node 22, standard library only): it hands the game
+// in. It copies this repository's game/ and screenshots/ into the output
+// folder and writes the dossier there with the vendored make.fun library.
+// Deterministic: the same repository writes the same bytes every run.
+//
+// Run it locally with:
+//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+// In the grader, MAKEFUN_OUTPUT_DIR is unset and /output is used instead.
 
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const repoRoot = process.cwd();
-const outDir = process.env.MAKEFUN_OUTPUT_DIR || '/output';
+const here = fileURLToPath(new URL('.', import.meta.url));
+const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-// Start from an empty output directory so a stale file can never leak in.
-rmSync(outDir, { recursive: true, force: true });
-mkdirSync(outDir, { recursive: true });
+mkdirSync(out, { recursive: true });
+cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
+mkdirSync(join(out, 'screenshots'), { recursive: true });
+if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
 
-// The game: every static file under game/.
-cpSync(join(repoRoot, 'game'), join(outDir, 'game'), { recursive: true });
+// The scorer's own caps (reference/gate.json): only text_max_bytes shapes
+// the bytes; the rest refuse an entry the scorer would refuse — more than 4
+// screenshots or one over 256 KiB, more than 993 files in game/ or 48 MiB of
+// game files in all, or a path under game/ over 1000 bytes.
+writeFileSync(
+  join(out, 'dossier.json'),
+  buildDossier(out, {
+    text_max_bytes: 163840,
+    screenshots: { max: 4, max_bytes: 262144 },
+    game_max_files: 993,
+    game_max_bytes: 50331648,
+    game_path_max_bytes: 1000,
+  }),
+);
 
-// The screenshots: 4 real renders of the game's own code.
-if (existsSync(join(repoRoot, 'screenshots'))) {
-  cpSync(join(repoRoot, 'screenshots'), join(outDir, 'screenshots'), { recursive: true });
-}
-
-// The dossier: byte for byte what the kit's library writes from the
-// output directory itself, under the competition's caps.
-const dossier = buildDossier(outDir, {
-  text_max_bytes: 163840,
-  screenshots: { max: 4, max_bytes: 262144 },
-  game_max_files: 993,
-  game_max_bytes: 50331648,
-  game_path_max_bytes: 1000,
-});
-writeFileSync(join(outDir, 'dossier.json'), dossier);
-console.log(`SOLMARA handed in: ${outDir} (dossier ${dossier.length} bytes)`);
+console.log(`SOLMARA entry written to ${out} (${statSync(join(out, 'dossier.json')).size} dossier bytes).`);
