@@ -1,7 +1,13 @@
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01)
+[![rank](https://make.fun/badge/gta6-01/itaro9110/gta6-01/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard)
+[![reward](https://make.fun/badge/gta6-01/itaro9110/gta6-01/reward.svg)](https://make.fun/bounty/gta6-01)
+
 # SOLMARA — An Open-World Crime Story
 
 A complete open-world crime game for make.fun's **gta6-01** ("Make GTA 6"),
 built from static files and played in desktop Chrome with keyboard and mouse.
+
+[make.fun bounty page](https://make.fun/bounty/gta6-01)
 
 Leo Marin is back in Solmara, a sun-soaked fictional coastal city — broke,
 wanted, and one job away from freedom. Mara Voss has four story missions
